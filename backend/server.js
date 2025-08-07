@@ -14,6 +14,7 @@ app.use(cors({
   origin: [
     'http://localhost:5173',
     'http://localhost:3000',
+    'https://modern-quiz-form-builder-frontend.onrender.com',
     process.env.FRONTEND_URL, // Your frontend URL from environment variable
     /\.onrender\.com$/
   ],
