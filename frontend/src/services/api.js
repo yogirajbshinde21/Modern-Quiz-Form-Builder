@@ -1,7 +1,14 @@
 const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
 
+console.log('🔗 API Configuration:', {
+  VITE_API_URL: import.meta.env.VITE_API_URL,
+  API_BASE: API_BASE,
+  mode: import.meta.env.MODE
+});
+
 // Form API functions
 export const saveForm = async (formData) => {
+  console.log('📤 Saving form to:', `${API_BASE}/forms${formData._id ? `/${formData._id}` : ''}`);
   const response = await fetch(`${API_BASE}/forms${formData._id ? `/${formData._id}` : ''}`, {
     method: formData._id ? 'PUT' : 'POST',
     headers: {
@@ -11,6 +18,7 @@ export const saveForm = async (formData) => {
   });
   
   if (!response.ok) {
+    console.error('❌ Failed to save form:', response.status, response.statusText);
     throw new Error('Failed to save form');
   }
   
@@ -28,13 +36,24 @@ export const getForm = async (formId) => {
 };
 
 export const getAllForms = async () => {
-  const response = await fetch(`${API_BASE}/forms`);
-  
-  if (!response.ok) {
-    throw new Error('Failed to fetch forms');
+  console.log('📥 Fetching all forms from:', `${API_BASE}/forms`);
+  try {
+    const response = await fetch(`${API_BASE}/forms`);
+    
+    console.log('📊 Response status:', response.status, response.statusText);
+    
+    if (!response.ok) {
+      console.error('❌ Failed to fetch forms:', response.status, response.statusText);
+      throw new Error('Failed to fetch forms');
+    }
+    
+    const data = await response.json();
+    console.log('✅ Fetched forms:', data.length, 'forms');
+    return data;
+  } catch (error) {
+    console.error('🚨 API Error in getAllForms:', error);
+    throw error;
   }
-  
-  return response.json();
 };
 
 export const deleteForm = async (formId) => {

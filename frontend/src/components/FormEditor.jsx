@@ -8,7 +8,7 @@ import ComprehensionQuestion from './questions/ComprehensionQuestion';
 import CategorizeRenderer from './renderers/CategorizeRenderer';
 import ClozeRenderer from './renderers/ClozeRenderer';
 import ComprehensionRenderer from './renderers/ComprehensionRenderer';
-import { uploadImage, saveForm, generateDistractors, getForm } from '../services/api';
+import { saveForm, generateDistractors, getForm } from '../services/api';
 
 const FormEditor = () => {
   const { formId } = useParams();
@@ -144,6 +144,7 @@ const FormEditor = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
+      // Save form with the processFormImages logic handled on backend
       await saveForm(form);
       // Show success toast and redirect to dashboard
       navigate('/');
@@ -154,16 +155,30 @@ const FormEditor = () => {
     }
   };
 
+  // Convert file to base64 or temporary URL for preview during editing
+  const convertFileToDataUrl = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
   const handleImageUpload = async (file, type, questionId = null) => {
     try {
-      const imageUrl = await uploadImage(file);
+      // Convert file to data URL for temporary display in editor
+      const dataUrl = await convertFileToDataUrl(file);
+      
       if (type === 'header') {
-        setForm(prev => ({ ...prev, headerImage: imageUrl }));
+        setForm(prev => ({ ...prev, headerImage: dataUrl }));
       } else if (type === 'question' && questionId) {
-        updateQuestion(questionId, { image: imageUrl });
+        updateQuestion(questionId, { image: dataUrl });
       }
+      
+      console.log('📎 Image attached for preview. Will upload to Cloudinary when form is saved.');
     } catch (error) {
-      console.error('Image upload failed:', error);
+      console.error('Image attachment failed:', error);
     }
   };
 

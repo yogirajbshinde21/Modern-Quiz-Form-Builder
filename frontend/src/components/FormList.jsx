@@ -22,10 +22,14 @@ const FormList = () => {
 
   const loadForms = async () => {
     try {
+      console.log('🔄 Loading forms...');
       const formsData = await getAllForms();
+      console.log('✅ Forms loaded successfully:', formsData);
       setForms(formsData);
     } catch (error) {
-      console.error('Failed to load forms:', error);
+      console.error('❌ Failed to load forms:', error);
+      // Show an error state instead of infinite loading
+      setForms([]); // Set to empty array to stop loading
     } finally {
       setLoading(false);
     }

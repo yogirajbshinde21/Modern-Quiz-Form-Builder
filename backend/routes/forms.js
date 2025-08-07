@@ -1,17 +1,81 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const Form = require('../models/Form');
 const Response = require('../models/Response');
 const { generateDistractors } = require('../services/geminiService');
 const { sendResultsEmail, validateEmailConfig } = require('../services/emailService');
+const { uploadToCloudinary, deleteFromCloudinary, extractPublicId, processFormImages } = require('../services/cloudinaryService');
 
 const router = express.Router();
 
-// Configure multer for image uploads
+// Helper function to extract all Cloudinary URLs from a form
+const extractCloudinaryUrls = (form) => {
+  const urls = [];
+  
+  // Check header image
+  if (form.headerImage && form.headerImage.includes('cloudinary.com')) {
+    urls.push({
+      type: 'header',
+      url: form.headerImage
+    });
+  }
+  
+  // Check questions for images
+  if (form.questions && Array.isArray(form.questions)) {
+    form.questions.forEach((question, questionIndex) => {
+      // Check question image
+      if (question.image && question.image.includes('cloudinary.com')) {
+        urls.push({
+          type: 'question',
+          questionIndex,
+          questionId: question.id,
+          questionText: question.text ? question.text.substring(0, 50) + '...' : 'No text',
+          url: question.image
+        });
+      }
+      
+      // Check comprehension passage image
+      if (question.type === 'comprehension' && question.data?.passage?.image && 
+          question.data.passage.image.includes('cloudinary.com')) {
+        urls.push({
+          type: 'comprehension_passage',
+          questionIndex,
+          questionId: question.id,
+          url: question.data.passage.image
+        });
+      }
+      
+      // Check categorize question images
+      if (question.type === 'categorize' && question.data?.items) {
+        question.data.items.forEach((item, itemIndex) => {
+          if (item.image && item.image.includes('cloudinary.com')) {
+            urls.push({
+              type: 'categorize_item',
+              questionIndex,
+              questionId: question.id,
+              itemIndex,
+              itemText: item.text || `Item ${itemIndex}`,
+              url: item.image
+            });
+          }
+        });
+      }
+    });
+  }
+  
+  return urls;
+};
+
+// Configure multer for temporary image uploads (before Cloudinary)
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/');
+    const uploadDir = 'temp-uploads/';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
     cb(null, Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(file.originalname));
@@ -33,10 +97,39 @@ const upload = multer({
 // Create new form
 router.post('/', async (req, res) => {
   try {
-    const form = new Form(req.body);
+    // Process images and upload to Cloudinary if needed
+    const processedFormData = await processFormImages(req.body);
+    
+    const form = new Form(processedFormData);
     await form.save();
+    
+    // Log all Cloudinary URLs in the form
+    const cloudinaryUrls = extractCloudinaryUrls(form);
+    if (cloudinaryUrls.length > 0) {
+      console.log('\n🖼️  FORM CREATED - Cloudinary Images Found:');
+      console.log(`📝 Form: "${form.title}" (ID: ${form._id})`);
+      console.log(`📊 Total Images: ${cloudinaryUrls.length}`);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      
+      cloudinaryUrls.forEach((item, index) => {
+        console.log(`${index + 1}. ${item.type.toUpperCase().replace('_', ' ')}`);
+        if (item.questionText) {
+          console.log(`   📋 Question: ${item.questionText}`);
+        }
+        if (item.itemText) {
+          console.log(`   🏷️  Item: ${item.itemText}`);
+        }
+        console.log(`   🔗 URL: ${item.url}`);
+        console.log('');
+      });
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    } else {
+      console.log(`📝 Form created: "${form.title}" (ID: ${form._id}) - No Cloudinary images found`);
+    }
+    
     res.status(201).json(form);
   } catch (error) {
+    console.error('❌ Error creating form:', error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -67,25 +160,80 @@ router.get('/:id', async (req, res) => {
 // Update form
 router.put('/:id', async (req, res) => {
   try {
-    const form = await Form.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    // Process images and upload to Cloudinary if needed
+    const processedFormData = await processFormImages(req.body);
+    
+    const form = await Form.findByIdAndUpdate(req.params.id, processedFormData, { new: true });
     if (!form) {
       return res.status(404).json({ error: 'Form not found' });
     }
+    
+    // Log all Cloudinary URLs in the updated form
+    const cloudinaryUrls = extractCloudinaryUrls(form);
+    if (cloudinaryUrls.length > 0) {
+      console.log('\n🔄 FORM UPDATED - Cloudinary Images Found:');
+      console.log(`📝 Form: "${form.title}" (ID: ${form._id})`);
+      console.log(`📊 Total Images: ${cloudinaryUrls.length}`);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      
+      cloudinaryUrls.forEach((item, index) => {
+        console.log(`${index + 1}. ${item.type.toUpperCase().replace('_', ' ')}`);
+        if (item.questionText) {
+          console.log(`   📋 Question: ${item.questionText}`);
+        }
+        if (item.itemText) {
+          console.log(`   🏷️  Item: ${item.itemText}`);
+        }
+        console.log(`   🔗 URL: ${item.url}`);
+        console.log('');
+      });
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    } else {
+      console.log(`📝 Form updated: "${form.title}" (ID: ${form._id}) - No Cloudinary images found`);
+    }
+    
     res.json(form);
   } catch (error) {
+    console.error('❌ Error updating form:', error);
     res.status(400).json({ error: error.message });
   }
 });
 
-// Upload image
-router.post('/upload', upload.single('image'), (req, res) => {
+// Upload image to Cloudinary
+router.post('/upload', upload.single('image'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
-  res.json({ 
-    filename: req.file.filename,
-    url: `/uploads/${req.file.filename}`
-  });
+
+  try {
+    // Upload to Cloudinary
+    const cloudinaryResult = await uploadToCloudinary(req.file.path, 'form-builder');
+    
+    // Delete temporary file
+    fs.unlink(req.file.path, (err) => {
+      if (err) console.error('Error deleting temp file:', err);
+    });
+
+    res.json({ 
+      filename: req.file.filename,
+      url: cloudinaryResult.url,
+      cloudinary: {
+        public_id: cloudinaryResult.public_id,
+        width: cloudinaryResult.width,
+        height: cloudinaryResult.height,
+        format: cloudinaryResult.format,
+        bytes: cloudinaryResult.bytes
+      }
+    });
+  } catch (error) {
+    // Delete temporary file in case of error
+    fs.unlink(req.file.path, (err) => {
+      if (err) console.error('Error deleting temp file:', err);
+    });
+    
+    console.error('Image upload error:', error);
+    res.status(500).json({ error: 'Failed to upload image' });
+  }
 });
 
 // Submit form response

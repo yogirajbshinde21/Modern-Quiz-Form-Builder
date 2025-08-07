@@ -103,6 +103,9 @@ public
 # Uploads directory (if you want to exclude uploaded files)
 # uploads/
 
+# Temporary uploads directory
+temp-uploads/
+
 # OS generated files
 .DS_Store
 .DS_Store?

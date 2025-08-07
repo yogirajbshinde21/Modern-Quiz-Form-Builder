@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 require('dotenv').config();
 
 const formRoutes = require('./routes/forms');
@@ -14,8 +15,9 @@ app.use(cors({
   origin: [
     'http://localhost:5173',
     'http://localhost:3000',
+    'http://127.0.0.1:5173',
     'https://modern-quiz-form-builder-frontend.onrender.com',
-    process.env.FRONTEND_URL, // Your frontend URL from environment variable
+    process.env.FRONTEND_URL,
     /\.onrender\.com$/
   ],
   credentials: true
@@ -23,15 +25,20 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Serve uploaded files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Create temp-uploads directory for temporary storage before Cloudinary upload
+const tempUploadsDir = path.join(__dirname, 'temp-uploads');
+if (!fs.existsSync(tempUploadsDir)) {
+  fs.mkdirSync(tempUploadsDir, { recursive: true });
+}
 
-// Create uploads directory if it doesn't exist
-const fs = require('fs');
+// Create uploads directory if it doesn't exist (for backward compatibility)
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
+
+// Serve uploaded files (for backward compatibility with existing images)
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Routes
 app.use('/api/forms', formRoutes);
@@ -46,15 +53,33 @@ app.get('/api/health', (req, res) => {
 });
 
 // Connect to MongoDB
+console.log('🔗 Attempting MongoDB connection...');
+console.log('📍 MongoDB URI:', process.env.MONGODB_URI ? 'Set (hidden for security)' : 'NOT SET');
+
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/formbuilder', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
 .then(() => {
-  console.log('Connected to MongoDB');
+  console.log('✅ Connected to MongoDB successfully');
+  console.log('🔗 Database connection established');
 })
 .catch((error) => {
-  console.error('MongoDB connection error:', error);
+  console.error('❌ MongoDB connection error:', error.message);
+  console.error('🔍 Error details:', {
+    code: error.code,
+    codeName: error.codeName,
+    message: error.message
+  });
+  
+  if (error.message.includes('authentication failed')) {
+    console.log('🔑 Authentication issue detected. Please check:');
+    console.log('   - Username and password are correct');
+    console.log('   - Password special characters are URL-encoded');
+    console.log('   - Database user has proper permissions');
+    console.log('   - IP address is whitelisted in MongoDB Atlas');
+  }
+  
   process.exit(1);
 });
 
